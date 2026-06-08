@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex API Unlock"
+  short_description: "Build a separate patched Codex app that unlocks API-mode Fast and Plugins UI gates."
+  default_prompt: "Rebuild /Applications/Codex Fast.app from the current official /Applications/Codex.app and apply the API-mode Fast/Plugins unlock patch."
