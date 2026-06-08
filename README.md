@@ -1,4 +1,4 @@
-# codex-api-unlock
+# codex-unlock
 
 > 非官方 macOS Codex 本地补丁 Skill：从官方 `/Applications/Codex.app` 复制生成独立的 `/Applications/Codex Fast.app`，尝试在 API Key / custom provider 模式下解锁 Fast/Speed mode 与 Plugins 的 UI 门禁。
 
@@ -7,19 +7,19 @@
 ### 方式一：命令安装
 
 ```bash
-npx skills add LukeSONG2000/codex-api-unlock -g -a codex -y
+npx skills add LukeSONG2000/codex-unlock -g -a codex -y
 ```
 
 安装后重启 Codex，然后对 Codex 说：
 
 ```text
-[$codex-api-unlock] Rebuild /Applications/Codex Fast.app from the current official /Applications/Codex.app.
+[$codex-unlock] Rebuild /Applications/Codex Fast.app from the current official /Applications/Codex.app.
 ```
 
 也可以直接运行脚本：
 
 ```bash
-python3 ~/.codex/skills/codex-api-unlock/scripts/rebuild_codex_fast.py --yes --quit-target
+python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py --yes --quit-target
 open "/Applications/Codex Fast.app"
 ```
 
@@ -28,13 +28,13 @@ open "/Applications/Codex Fast.app"
 把下面这段话复制给 Codex：
 
 ```text
-请安装这个 Codex skill：GitHub 仓库 LukeSONG2000/codex-api-unlock，skill 路径是 skills/codex-api-unlock。请把它安装到我的全局 Codex skills 目录，安装后告诉我需要重启 Codex。安装完成后，使用该 skill 从当前官方 /Applications/Codex.app 重建 /Applications/Codex Fast.app。
+请安装这个 Codex skill：GitHub 仓库 LukeSONG2000/codex-unlock，skill 路径是 skills/codex-unlock。请把它安装到我的全局 Codex skills 目录，安装后告诉我需要重启 Codex。安装完成后，使用该 skill 从当前官方 /Applications/Codex.app 重建 /Applications/Codex Fast.app。
 ```
 
 安装后重启 Codex，再执行：
 
 ```text
-[$codex-api-unlock] Rebuild /Applications/Codex Fast.app from the current official /Applications/Codex.app.
+[$codex-unlock] Rebuild /Applications/Codex Fast.app from the current official /Applications/Codex.app.
 ```
 
 ## 使用范围
@@ -79,19 +79,19 @@ open "/Applications/Codex Fast.app"
 官方 Codex 更新后，覆盖旧 Fast 版并保留备份：
 
 ```bash
-python3 ~/.codex/skills/codex-api-unlock/scripts/rebuild_codex_fast.py --yes --quit-target
+python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py --yes --quit-target
 ```
 
 覆盖旧 Fast 版但不保留备份：
 
 ```bash
-python3 ~/.codex/skills/codex-api-unlock/scripts/rebuild_codex_fast.py --yes --quit-target --no-backup
+python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py --yes --quit-target --no-backup
 ```
 
 指定路径：
 
 ```bash
-python3 ~/.codex/skills/codex-api-unlock/scripts/rebuild_codex_fast.py \
+python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py \
   --source /Applications/Codex.app \
   --target "/Applications/Codex Fast.app" \
   --yes \
@@ -135,5 +135,5 @@ rm -rf "/Applications/Codex Fast.app"
 删除 Skill：
 
 ```bash
-npx skills remove codex-api-unlock -g -a codex -y
+npx skills remove codex-unlock -g -a codex -y
 ```

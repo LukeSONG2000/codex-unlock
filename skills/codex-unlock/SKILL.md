@@ -1,9 +1,9 @@
 ---
-name: codex-api-unlock
+name: codex-unlock
 description: Rebuild a separate patched macOS Codex Fast.app from the current official /Applications/Codex.app after Codex updates, preserving the official app while overwriting or backing up the old Fast copy. Use when the user wants API-key mode Fast/Speed mode and Plugins in a non-official Codex app clone, or asks to refresh/recreate Codex Fast.app after installing an official Codex update.
 ---
 
-# Codex API Unlock
+# Codex Unlock
 
 Use this skill to rebuild a separate `/Applications/Codex Fast.app` from the current official `/Applications/Codex.app`. The workflow intentionally does not modify the official app.
 
