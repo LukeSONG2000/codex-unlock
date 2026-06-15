@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -22,9 +23,6 @@ class PatchError(RuntimeError):
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
     print('[RUN]', ' '.join(cmd))
     subprocess.run(cmd, cwd=cwd, check=True)
-
-def capture(cmd: list[str]) -> str:
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
 
 def require_tool(name: str) -> None:
     if shutil.which(name) is None:
@@ -45,7 +43,6 @@ def assert_source(source: Path) -> None:
         raise SystemExit(f'Source Info.plist not found: {info_plist(source)}')
 
 def quit_target(target: Path) -> None:
-    # Best-effort: helpers include the full bundle path in argv on macOS.
     subprocess.run(['pkill', '-f', str(target)], check=False)
     time.sleep(1)
 
@@ -65,7 +62,6 @@ def backup_or_remove_target(target: Path, *, yes: bool, backup: bool) -> Path | 
     return None
 
 def copy_app(source: Path, target: Path) -> None:
-    # ditto handles macOS bundles and extended attributes better than shutil.copytree.
     run(['ditto', str(source), str(target)])
 
 def set_plist_identity(app: Path, *, bundle_id: str, display_name: str) -> None:
@@ -89,6 +85,15 @@ def update_asar_integrity(app: Path, asar_path: Path) -> None:
         plistlib.dump(data, f, sort_keys=False)
     print(f'[OK] Updated ElectronAsarIntegrity hash: {digest}')
 
+def replace_regex(path: Path, pattern: str, replacement: str, label: str, actions: list[str]) -> None:
+    text = path.read_text(encoding='utf-8')
+    new, n = re.subn(pattern, replacement, text, count=1)
+    if n == 0:
+        return
+    path.write_text(new, encoding='utf-8')
+    actions.append(f'{path.name}: {label}')
+    print(f'[PATCHED] {path.name}: {label}')
+
 def replace_once(path: Path, old: str, new: str, label: str, actions: list[str]) -> None:
     text = path.read_text(encoding='utf-8')
     if old not in text:
@@ -104,47 +109,68 @@ def patch_assets(app_dir: Path) -> list[str]:
 
     actions: list[str] = []
 
+    # 1) read-service-tier-for-request: allow API-key requests to use fast service tier
     for path in sorted(assets.glob('read-service-tier-for-request-*.js')):
-        replace_once(
+        replace_regex(
             path,
-            'return n===`chatgpt`?(await e.query.fetch(c,{authMethod:n,hostId:t})).requirements?.featureRequirements?.fast_mode!==!1:!1',
+            r'return n===`chatgpt`\?\(await e\.query\.fetch\(c,\{authMethod:n,hostId:t\}\)\)\.requirements\?\.featureRequirements\?\.fast_mode!==!1:!1',
             'return n===`chatgpt`?(await e.query.fetch(c,{authMethod:n,hostId:t})).requirements?.featureRequirements?.fast_mode!==!1:!0',
             'API-key request service-tier allowed',
             actions,
         )
 
+    # 2) use-service-tier-settings: gate UI on auth=chatgpt. Variable names vary across builds,
+    #    so match by the stable expression `?.authMethod===`chatgpt`` and the feature flag line.
     for path in sorted(assets.glob('use-service-tier-settings-*.js')):
-        replace_once(path, 'a=i?.authMethod===`chatgpt`', 'a=!0', 'service-tier auth gate allowed', actions)
-        replace_once(
+        replace_regex(
             path,
-            'u=!!i?.isLoading||a&&l,f=a&&!u&&c!=null&&c?.requirements?.featureRequirements?.fast_mode!==!1',
-            'u=!!i?.isLoading,f=a&&!u',
+            r'(\w+)\?\.authMethod===`chatgpt`',
+            r'\1?.authMethod===`chatgpt`||!0',
+            'service-tier auth gate allowed',
+            actions,
+        )
+        replace_regex(
+            path,
+            r'(\w+)=(!!(\w+)\?\.isLoading\|\|(\w+)&&(\w+)),(\w+)=\4&&!\5&&(\w+)!=null&&\6\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1',
+            r'\1=\2,\6=\4||!0&&!5',
             'service-tier loading/feature gate allowed',
             actions,
         )
 
+    # 3) use-plugins: API-key plugin gate function returns `e!==`chatgpt``. Function name varies.
     for path in sorted(assets.glob('use-plugins-*.js')):
-        replace_once(path, 'function ge(e){return e!==`chatgpt`}', 'function ge(e){return false}', 'API-key plugin gate disabled', actions)
-        replace_once(
+        replace_regex(
             path,
-            'return!(!r&&Re(e)||!n&&ze(e)||!t&&Be(e))',
-            'return!(!r&&Re(e)||!t&&Be(e))',
+            r'function (\w+)\((\w+)\)\{return \2!==`chatgpt`\}',
+            r'function \1(\2){return false}',
+            'API-key plugin gate disabled',
+            actions,
+        )
+        # Chrome plugin external-browser gate: `!n&&ze(e)` where ze matches chrome plugin types.
+        # Match the stable `Le` filter expression shape regardless of minifier names.
+        replace_regex(
+            path,
+            r'return!\(!r&&(\w+)\((\w+)\)\|\|!n&&(\w+)\(\2\)\|\|!t&&(\w+)\(\2\)\)',
+            r'return!(!r&&\1(\2)||!t&&\4(\2))',
             'Chrome plugin external-browser gate removed',
             actions,
         )
 
+    # 4) check-plugin-availability: stop marking apps as connector-unavailable.
     for path in sorted(assets.glob('check-plugin-availability-*.js')):
-        replace_once(
+        # Per-app connector-unavailable guard shape changes across builds; neutralize by
+        # prefixing the connector-unavailable assignment with a false short-circuit.
+        replace_regex(
             path,
-            '(r||n!=null&&!n.isPending&&n.error==null&&n.data==null)&&(i=`connector-unavailable`)',
-            'false&&(r||n!=null&&!n.isPending&&n.error==null&&n.data==null)&&(i=`connector-unavailable`)',
+            r'\(([^`]{0,120}?)&&\((\w+)=`connector-unavailable`\)\)',
+            r'(false&&\2=`connector-unavailable`)',
             'connector-unavailable per-app gate disabled',
             actions,
         )
-        replace_once(
+        replace_regex(
             path,
-            'let F=b.length>0&&N===b.length?M?`disabled-by-admin`:`connector-unavailable`:null',
-            'let F=b.length>0&&N===b.length&&M?`disabled-by-admin`:null',
+            r'let (\w+)=(\w+)\.length>0&&(\w+)===\2\.length\?(\w+)\?`disabled-by-admin`:`connector-unavailable`:null',
+            r'let \1=\2.length>0&&\3===\2.length&&\4?`disabled-by-admin`:null',
             'connector-unavailable aggregate gate disabled',
             actions,
         )
@@ -171,7 +197,7 @@ def patch_asar(target: Path) -> list[str]:
     shutil.copy2(original_asar, backup_asar)
     print(f'[OK] Backed up target app.asar -> {backup_asar}')
 
-    with tempfile.TemporaryDirectory(prefix='codex-fast-clone-') as temp:
+    with tempfile.TemporaryDirectory(prefix='codex-unlock-') as temp:
         temp_dir = Path(temp)
         extracted = temp_dir / 'app'
         patched_asar = temp_dir / 'app.asar'
@@ -181,7 +207,6 @@ def patch_asar(target: Path) -> list[str]:
         shutil.copy2(patched_asar, original_asar)
         print(f'[OK] Wrote patched app.asar -> {original_asar}')
 
-    # Remove unpacked app leftovers from older manual patch attempts.
     for stale in (resources / 'app', resources / 'app.asar1'):
         if stale.is_dir():
             shutil.rmtree(stale)
