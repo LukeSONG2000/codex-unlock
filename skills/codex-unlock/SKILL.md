@@ -50,6 +50,11 @@ Open the result:
 open "/Applications/Codex Fast.app"
 ```
 
+
+## Stable Privacy Permissions
+
+By default, the script signs `Codex Fast.app` with a stable local certificate named `Codex Unlock Local Code Signing` instead of ad-hoc signing. This reduces repeated macOS privacy prompts after future rebuilds. The first switch from ad-hoc signing to the stable certificate may still require one final reauthorization. Use `--ad-hoc-sign` only as a fallback.
+
 ## Safety Rules
 
 - Never patch `/Applications/Codex.app` directly.

@@ -104,6 +104,25 @@ python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py \
 open "/Applications/Codex Fast.app"
 ```
 
+
+## 避免每次重建后重新授权隐私权限
+
+macOS 的隐私权限（辅助功能、屏幕录制、自动化等）会跟 App 的代码签名身份相关。早期版本使用 ad-hoc 签名，重建后可能被 macOS 当成“新 App”，从而要求重新授权。
+
+现在脚本默认会创建并复用一个本地固定签名证书：
+
+```text
+Codex Unlock Local Code Signing
+```
+
+第一次从 ad-hoc 签名切换到这个证书时，可能仍需要最后重新授权一次；之后只要继续用同一个证书和同一个 `/Applications/Codex Fast.app` Bundle ID，后续重建通常不需要每次重新授权。
+
+如果签名证书出问题，可以回退到 ad-hoc 签名：
+
+```bash
+python3 ~/.codex/skills/codex-unlock/scripts/rebuild_codex_fast.py --yes --quit-target --ad-hoc-sign
+```
+
 ## 验证
 
 打开 `/Applications/Codex Fast.app` 后检查：

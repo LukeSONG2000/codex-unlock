@@ -16,6 +16,8 @@ from pathlib import Path
 DEFAULT_SOURCE = Path('/Applications/Codex.app')
 DEFAULT_TARGET = Path('/Applications/Codex Fast.app')
 DEFAULT_BUNDLE_ID = 'com.openai.codex.fast'
+DEFAULT_SIGN_IDENTITY = 'Codex Unlock Local Code Signing'
+LOCAL_CERT_IMPORT_PASSWORD = 'codex-unlock-local'
 
 class PatchError(RuntimeError):
     pass
@@ -27,6 +29,48 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> None:
 def require_tool(name: str) -> None:
     if shutil.which(name) is None:
         raise SystemExit(f'Missing required tool: {name}')
+
+
+def has_local_signing_certificate(identity: str) -> bool:
+    completed = subprocess.run(
+        ['security', 'find-certificate', '-c', identity, '-a', str(Path.home() / 'Library/Keychains/login.keychain-db')],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    return identity in completed.stdout
+
+def ensure_local_signing_certificate(identity: str) -> None:
+    if identity == '-':
+        return
+    if has_local_signing_certificate(identity):
+        return
+    require_tool('openssl')
+    with tempfile.TemporaryDirectory(prefix='codex-unlock-cert-') as temp:
+        temp_dir = Path(temp)
+        config = temp_dir / 'openssl.cnf'
+        key = temp_dir / 'key.pem'
+        cert = temp_dir / 'cert.pem'
+        p12 = temp_dir / 'cert.p12'
+        config.write_text(
+            '[ req ]\n'
+            'distinguished_name = dn\n'
+            'x509_extensions = v3_req\n'
+            'prompt = no\n\n'
+            '[ dn ]\n'
+            f'CN = {identity}\n\n'
+            '[ v3_req ]\n'
+            'keyUsage = critical, digitalSignature\n'
+            'extendedKeyUsage = codeSigning\n'
+            'basicConstraints = critical, CA:false\n'
+            'subjectKeyIdentifier = hash\n',
+            encoding='utf-8',
+        )
+        run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650', '-config', str(config), '-keyout', str(key), '-out', str(cert)])
+        run(['openssl', 'pkcs12', '-legacy', '-export', '-out', str(p12), '-inkey', str(key), '-in', str(cert), '-passout', f'pass:{LOCAL_CERT_IMPORT_PASSWORD}'])
+        run(['security', 'import', str(p12), '-k', str(Path.home() / 'Library/Keychains/login.keychain-db'), '-P', LOCAL_CERT_IMPORT_PASSWORD, '-T', '/usr/bin/codesign'])
+    print(f'[OK] Created local signing certificate: {identity}')
 
 def app_resources(app: Path) -> Path:
     return app / 'Contents' / 'Resources'
@@ -216,8 +260,9 @@ def patch_asar(target: Path) -> list[str]:
             print(f'[OK] Removed stale file: {stale}')
     return actions
 
-def verify(app: Path) -> None:
-    run(['codesign', '--force', '--deep', '--sign', '-', str(app)])
+def verify(app: Path, sign_identity: str) -> None:
+    ensure_local_signing_certificate(sign_identity)
+    run(['codesign', '--force', '--deep', '--sign', sign_identity, str(app)])
     run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)])
 
 def main() -> None:
@@ -229,6 +274,8 @@ def main() -> None:
     parser.add_argument('--yes', action='store_true', help='Replace existing target app')
     parser.add_argument('--no-backup', action='store_true', help='Delete existing target instead of moving it to a timestamped backup')
     parser.add_argument('--quit-target', action='store_true', help='Best-effort quit of the target app before replacing it')
+    parser.add_argument('--sign-identity', default=DEFAULT_SIGN_IDENTITY, help='Code signing identity for the Fast copy; default creates/reuses a stable local certificate')
+    parser.add_argument('--ad-hoc-sign', action='store_true', help='Use ad-hoc signing instead of the stable local certificate')
     args = parser.parse_args()
 
     require_tool('ditto')
@@ -243,11 +290,13 @@ def main() -> None:
     set_plist_identity(args.target, bundle_id=args.bundle_id, display_name=args.display_name)
     actions = patch_asar(args.target)
     update_asar_integrity(args.target, app_resources(args.target) / 'app.asar')
-    verify(args.target)
+    sign_identity = '-' if args.ad_hoc_sign else args.sign_identity
+    verify(args.target, sign_identity)
 
     print('\n=== Codex Fast clone complete ===')
     print(f'Source: {args.source}')
     print(f'Target: {args.target}')
+    print(f'Sign identity: {sign_identity}')
     if backup_path:
         print(f'Previous target backup: {backup_path}')
     print('Patch actions:')
